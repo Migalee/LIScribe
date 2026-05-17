@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>LIScribe</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#07070e;--s1:#0d0d1a;--s2:#131226;--border:#1c1c32;
+  --acc:#8b7cf8;--acc2:#38d4c0;--warn:#f5a742;--danger:#f05c6e;
+  --ok:#3dd672;--text:#ccc9e8;--muted:#484468;--dim:#1a1836;
+}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;overflow:hidden;}
+#app{display:flex;height:100vh;}
+
+/* ── CANVAS AREA ─────────────────────────────── */
+#ca{flex:1;position:relative;overflow:hidden;}
+#ca canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
+
+/* Calibration overlay: shown during Arduino startup calibration */
+#cal-ov{
+  position:absolute;inset:0;z-index:50;
+  background:rgba(7,7,14,.92);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  transition:opacity .4s;
+}
+#cal-ov.hidden{opacity:0;pointer-events:none;}
+#cal-icon{font-size:56px;animation:pulse-icon 1.2s ease-in-out infinite;}
+@keyframes pulse-icon{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+#cal-title{font:800 22px/1 'Syne',sans-serif;color:#fff;}
+#cal-msg{font:13px/1.5 'Space Mono',monospace;color:var(--muted);text-align:center;max-width:320px;}
+#cal-bar-wrap{width:280px;height:5px;background:var(--dim);border-radius:99px;overflow:hidden;}
+#cal-bar{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--acc),var(--acc2));width:0%;transition:width .3s;}
+
+/* Legend toggle + floating panel */
+#leg-btn{
+  position:absolute;top:14px;left:14px;z-index:30;
+  background:var(--s1);border:1px solid var(--border);border-radius:8px;
+  color:var(--muted);font:700 11px/1 'Space Mono',monospace;
+  padding:7px 12px;cursor:pointer;letter-spacing:1px;
+  transition:color .15s,border-color .15s;
+}
+#leg-btn:hover{color:var(--text);border-color:var(--acc);}
+#legend{
+  position:absolute;top:46px;left:14px;z-index:20;width:224px;
+  background:rgba(13,13,26,.97);border:1px solid var(--border);border-radius:10px;
+  box-shadow:0 8px 32px rgba(0,0,0,.6);display:none;flex-direction:column;
+}
+#legend.open{display:flex;}
+#leg-hd{padding:10px 12px 8px;border-bottom:1px solid var(--border);}
+#leg-ttl{font:700 10px/1 'Space Mono',monospace;letter-spacing:2px;text-transform:uppercase;color:var(--muted);}
+#leg-list{overflow-y:auto;max-height:400px;padding:5px 8px 10px;}
+#leg-list::-webkit-scrollbar{width:3px;}
+#leg-list::-webkit-scrollbar-thumb{background:var(--dim);}
+.li{display:grid;grid-template-columns:26px 1fr;gap:2px 8px;padding:5px 4px;border-radius:6px;border-bottom:1px solid var(--dim);cursor:default;transition:background .1s;}
+.li:hover{background:var(--s2);}
+.li.hi{background:rgba(139,124,248,.18);}
+.li-l{font:800 20px/1 'Syne',sans-serif;align-self:center;background:linear-gradient(135deg,var(--acc),var(--acc2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.li-i{display:flex;flex-direction:column;gap:2px;}
+.li-f{font:700 12px/1 'Space Mono',monospace;color:var(--acc2);}
+.li-d{font:10px/1.3 'Space Mono',monospace;color:var(--muted);}
+
+#hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font:10px/1 'Space Mono',monospace;color:var(--muted);opacity:.3;white-space:nowrap;pointer-events:none;}
+
+/* ── PANEL ───────────────────────────────────── */
+#panel{width:280px;min-width:280px;background:var(--s1);border-left:1px solid var(--border);display:flex;flex-direction:column;padding:16px 14px;gap:11px;overflow-y:auto;}
+#panel::-webkit-scrollbar{width:3px;}
+#panel::-webkit-scrollbar-thumb{background:var(--dim);}
+.pt{font:800 22px/1 'Syne',sans-serif;color:#fff;}
+.pt span{background:linear-gradient(135deg,var(--acc),var(--acc2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 13px;}
+.ct{font:10px/1 'Space Mono',monospace;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+
+/* Current letter + hold ring */
+#lbox{display:flex;align-items:center;gap:16px;padding:4px 0;}
+#cl{font:800 64px/1 'Syne',sans-serif;min-width:60px;text-align:center;background:linear-gradient(135deg,var(--acc),var(--acc2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+#cl.flash{animation:fl .22s ease;}
+@keyframes fl{0%{transform:scale(1)}50%{transform:scale(1.22)}100%{transform:scale(1)}}
+#rw{position:relative;width:52px;height:52px;flex-shrink:0;}
+#rs{width:52px;height:52px;transform:rotate(-90deg);}
+.rbg{fill:none;stroke:var(--dim);stroke-width:4;}
+.rfg{fill:none;stroke:url(#rg);stroke-width:4;stroke-linecap:round;stroke-dasharray:138;stroke-dashoffset:138;transition:stroke-dashoffset .06s linear;}
+#rl{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font:700 14px/1 'Space Mono',monospace;color:var(--text);}
+
+/* Text output */
+#txt{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;min-height:66px;font:700 17px/1.55 'Space Mono',monospace;color:#fff;letter-spacing:1px;word-break:break-all;}
+.nl{color:var(--acc2);}
+#cur{animation:blk .8s step-end infinite;}
+@keyframes blk{0%,100%{opacity:1}50%{opacity:0}}
+
+/* Sensor readouts */
+.sr{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:5px;}
+.sr:last-child{margin-bottom:0;}
+.sl{color:var(--muted);}
+.sv{font:11px/1 'Space Mono',monospace;color:var(--acc2);}
+.sb{width:60px;height:4px;background:var(--dim);border-radius:99px;overflow:hidden;display:inline-block;}
+.sf{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .07s;}
+
+/* Buttons */
+.btn{width:100%;padding:10px;border:none;border-radius:8px;font:700 13px/1 'Syne',sans-serif;cursor:pointer;transition:opacity .15s,transform .1s;}
+.btn:hover{opacity:.83;} .btn:active{transform:scale(.97);} .btn:disabled{opacity:.22;cursor:not-allowed;}
+.bg{background:var(--ok);color:#081409;}
+.br{background:var(--danger);color:#160508;}
+.bw{background:var(--warn);color:#160c01;}
+.bd{background:var(--dim);color:var(--text);}
+.brow{display:flex;gap:7px;} .brow .btn{flex:1;}
+
+/* Connection status dot */
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--muted);}
+.dot.live{background:var(--ok);animation:dp 1.4s ease-in-out infinite;}
+.dot.err{background:var(--danger);}
+@keyframes dp{0%,100%{opacity:1}50%{opacity:.3}}
+#st{font:11px/1 'Space Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ══ CANVAS AREA ══ -->
+  <div id="ca">
+
+    <!-- Calibration overlay (shown during Arduino startup) -->
+    <div id="cal-ov">
+      <div id="cal-icon">✋</div>
+      <div id="cal-title">Calibrazione in corso...</div>
+      <div id="cal-msg">Avvia server.py e connetti Arduino.<br>Il guanto si calibra automaticamente all'avvio.</div>
+      <div id="cal-bar-wrap"><div id="cal-bar"></div></div>
+    </div>
+
+    <!-- Legend toggle button -->
+    <button id="leg-btn" onclick="toggleLeg()">☰ Legenda</button>
+
+    <!-- Floating legend panel -->
+    <div id="legend">
+      <div id="leg-hd"><div id="leg-ttl">Alfabeto LIS — 16 lettere</div></div>
+      <div id="leg-list"></div>
+    </div>
+
+    <div id="hint">Trascina per ruotare · Scroll per zoom</div>
+  </div>
+
+  <!-- ══ PANEL ══ -->
+  <div id="panel">
+    <div><div class="pt"><span>LI</span>Scribe</div></div>
+
+    <!-- Lettera rilevata -->
+    <div class="card">
+      <div class="ct">Lettera Rilevata</div>
+      <div id="lbox">
+        <div id="cl">–</div>
+        <div id="rw">
+          <svg id="rs" viewBox="0 0 52 52">
+            <defs>
+              <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#8b7cf8"/>
+                <stop offset="100%" stop-color="#38d4c0"/>
+              </linearGradient>
+            </defs>
+            <circle class="rbg" cx="26" cy="26" r="22"/>
+            <circle class="rfg" id="rfg" cx="26" cy="26" r="22"/>
+          </svg>
+          <div id="rl">–</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Testo composto -->
+    <div class="card">
+      <div class="ct">Testo Composto</div>
+      <div id="txt"><span id="typed"></span><span id="cur">|</span></div>
+    </div>
+
+    <!-- Controlli riconoscimento -->
+    <div class="card">
+      <div class="ct">Riconoscimento</div>
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <button class="btn bg" id="brec" onclick="toggleRec()">▶ Inizia</button>
+        <div class="brow">
+          <button class="btn bd" onclick="addSpc()">⎵ Spazio</button>
+          <button class="btn bd" onclick="doBack()">⌫ Canc</button>
+        </div>
+        <button class="btn bd" onclick="doClear()">✕ Cancella tutto</button>
+      </div>
+    </div>
+
+    <!-- Sensori -->
+    <div class="card">
+      <div class="ct">Sensori</div>
+      <div class="sr">
+        <span class="sl">Indice</span>
+        <span style="display:flex;align-items:center;gap:6px;"><div class="sb"><div class="sf" id="bi"></div></div><span class="sv" id="vi">0%</span></span>
+      </div>
+      <div class="sr">
+        <span class="sl">Medio</span>
+        <span style="display:flex;align-items:center;gap:6px;"><div class="sb"><div class="sf" id="bm"></div></div><span class="sv" id="vm">0%</span></span>
+      </div>
+      <div class="sr"><span class="sl">Pitch</span><span class="sv" id="vpx">0.0°</span></div>
+      <div class="sr"><span class="sl">Roll</span> <span class="sv" id="vpy">0.0°</span></div>
+    </div>
+
+    <!-- Connessione + calibrazione -->
+    <div class="card">
+      <div class="ct">Connessione</div>
+      <div style="display:flex;align-items:center;margin-bottom:9px;">
+        <span class="dot" id="dot"></span><span id="st">Non connesso</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <button class="btn bg"  id="bconn" onclick="doConn()">⚡ Connetti ad Arduino</button>
+        <button class="btn bw"  id="bcal"  onclick="doCalG()" disabled>⟳ Ricalibra Giroscopio</button>
+        <button class="btn bd"  id="bcalf" onclick="doCalF()" disabled>✋ Ricalibra Flex Sensor</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ════════════════════════════════════════════
+//  ALPHABET  (16 lettere)
+//  key: indice(O/C), medio(O/C), pitch(U/N/D), roll(L/N/R)
+//  O = aperto  (<40%),  C = chiuso  (>60%)
+//  U = pitch su (<-28°), D = pitch giù (>28°)
+//  L = roll sx (<-28°),  R = roll dx  (>28°)
+// ════════════════════════════════════════════
+var ALPHA = {
+  'O,O,N,N':{l:'H',fx:'○○',or:'— —',dc:'Aperto, neutro'},
+  'O,O,U,N':{l:'B',fx:'○○',or:'↑ —',dc:'Aperto, pitch su'},
+  'O,O,D,N':{l:'P',fx:'○○',or:'↓ —',dc:'Aperto, pitch giù'},
+  'O,O,N,R':{l:'U',fx:'○○',or:'— →',dc:'Aperto, roll destra'},
+  'O,O,N,L':{l:'V',fx:'○○',or:'— ←',dc:'Aperto, roll sinistra'},
+  'C,C,N,N':{l:'A',fx:'●●',or:'— —',dc:'Pugno, neutro'},
+  'C,C,U,N':{l:'S',fx:'●●',or:'↑ —',dc:'Pugno, pitch su'},
+  'C,C,D,N':{l:'E',fx:'●●',or:'↓ —',dc:'Pugno, pitch giù'},
+  'C,C,N,R':{l:'N',fx:'●●',or:'— →',dc:'Pugno, roll destra'},
+  'C,C,N,L':{l:'M',fx:'●●',or:'— ←',dc:'Pugno, roll sinistra'},
+  'O,C,N,N':{l:'D',fx:'○●',or:'— —',dc:'Ind. aperto, neutro'},
+  'O,C,D,N':{l:'G',fx:'○●',or:'↓ —',dc:'Ind. aperto, pitch giù'},
+  'O,C,N,R':{l:'L',fx:'○●',or:'— →',dc:'Ind. aperto, roll destra'},
+  'C,O,N,N':{l:'I',fx:'●○',or:'— —',dc:'Med. aperto, neutro'},
+  'C,O,D,N':{l:'R',fx:'●○',or:'↓ —',dc:'Med. aperto, pitch giù'},
+  'C,O,N,R':{l:'T',fx:'●○',or:'— →',dc:'Med. aperto, roll destra'},
+};
+
+// Build legend list
+(function(){
+  var list = document.getElementById('leg-list');
+  Object.values(ALPHA).forEach(function(info){
+    var el = document.createElement('div');
+    el.className = 'li';
+    el.dataset.l = info.l;
+    el.innerHTML =
+      '<div class="li-l">'+info.l+'</div>'+
+      '<div class="li-i">'+
+        '<div class="li-f">'+info.fx+'&nbsp;&nbsp;'+info.or+'</div>'+
+        '<div class="li-d">'+info.dc+'</div>'+
+      '</div>';
+    list.appendChild(el);
+  });
+  // Spazio
+  var sp = document.createElement('div');
+  sp.className = 'li';
+  sp.innerHTML = '<div class="li-l" style="font-size:15px">⎵</div><div class="li-i"><div class="li-f">Pulsante</div><div class="li-d">Spazio manuale</div></div>';
+  list.appendChild(sp);
+})();
+
+function toggleLeg(){ document.getElementById('legend').classList.toggle('open'); }
+function hiLeg(l){
+  document.querySelectorAll('.li').forEach(function(e){
+    e.classList.toggle('hi', e.dataset.l===l);
+    if(e.dataset.l===l) e.scrollIntoView({block:'nearest'});
+  });
+}
+
+// ════════════════════════════════════════════
+//  THREE.JS — MANO DESTRA (vista a specchio)
+//  Il pollice appare a SINISTRA dello schermo,
+//  il mignolo a DESTRA: corrisponde a guardare
+//  la propria mano destra dall'alto in basso.
+// ════════════════════════════════════════════
+var ca = document.getElementById('ca');
+
+var renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+ca.insertBefore(renderer.domElement, ca.firstChild);
+
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07070e);
+scene.fog = new THREE.Fog(0x07070e,18,32);
+
+var camera = new THREE.PerspectiveCamera(40,1,0.1,60);
+
+function resize(){
+  var w=ca.clientWidth||600, h=ca.clientHeight||600;
+  renderer.setSize(w,h,false);
+  camera.aspect=w/h;
+  camera.updateProjectionMatrix();
+}
+
+// ── Luci ──
+scene.add(new THREE.HemisphereLight(0x445599,0x331100,0.5));
+var kl=new THREE.DirectionalLight(0xfff5ea,1.9);
+kl.position.set(-4,10,5); kl.castShadow=true;
+kl.shadow.mapSize.set(2048,2048);
+kl.shadow.camera.left=-8; kl.shadow.camera.right=8;
+kl.shadow.camera.top=8; kl.shadow.camera.bottom=-8;
+kl.shadow.camera.far=30; kl.shadow.bias=-0.001;
+scene.add(kl);
+var rl2=new THREE.DirectionalLight(0x38d4c0,0.5);
+rl2.position.set(6,3,-8); scene.add(rl2);
+var bl=new THREE.PointLight(0xffaa66,0.2,14); bl.position.set(0,-2,2); scene.add(bl);
+
+// ── Pavimento ──
+var gnd=new THREE.Mesh(new THREE.PlaneGeometry(28,28),new THREE.MeshStandardMaterial({color:0x07070e,roughness:1}));
+gnd.rotation.x=-Math.PI/2; gnd.position.y=-1.8; gnd.receiveShadow=true; scene.add(gnd);
+var gr=new THREE.GridHelper(20,22,0x11112a,0x11112a); gr.position.y=-1.79; scene.add(gr);
+
+// ── Materiali ──
+var mS=new THREE.MeshPhysicalMaterial({color:0xc87848,roughness:0.72,metalness:0,clearcoat:0.05,clearcoatRoughness:0.6});
+var mK=new THREE.MeshPhysicalMaterial({color:0xb06030,roughness:0.65,metalness:0});
+var mN=new THREE.MeshPhysicalMaterial({color:0xf0d8c5,roughness:0.18,metalness:0.06,clearcoat:0.6,clearcoatRoughness:0.2,transparent:true,opacity:0.92});
+
+// ── Gruppo mano (riceve rotazioni giroscopio) ──
+var HG = new THREE.Group();
+scene.add(HG);
+
+// Cilindro orientato lungo –Z (base in z=0, punta in z=–len)
+// Usa mesh.rotation.x invece di applyMatrix4 per evitare problemi con le normali
+function mkCyl(rT,rB,len,seg,mat){
+  var m=new THREE.Mesh(new THREE.CylinderGeometry(rT,rB,len,seg||10),mat||mS);
+  m.rotation.x=Math.PI/2;   // ruota cilindro da Y a Z
+  m.position.z=-len/2;       // centra: base=0, punta=–len
+  m.castShadow=true; m.receiveShadow=true;
+  return m;
+}
+
+// Una falange: { g=gruppo, next=pivot in cima }
+// Piega con g.rotation.x negativo → la punta va verso –Y (palmo, verso il pavimento)
+function mkPh(parent,len,r0,r1,nail){
+  var g=new THREE.Group();
+  g.add(mkCyl(r1||r0*0.84,r0,len));
+  var k=new THREE.Mesh(new THREE.SphereGeometry(r0*1.07,10,8),mK);
+  k.castShadow=true; g.add(k);
+  if(nail){
+    var nl=len*0.58, nw=(r1||r0*0.84)*1.85;
+    var nm=new THREE.Mesh(new THREE.BoxGeometry(nw,0.013,nl),mN);
+    nm.position.set(0,(r1||r0*0.84)*0.88,-len*0.18-nl/2);
+    nm.castShadow=true; g.add(nm);
+  }
+  parent.add(g);
+  var nx=new THREE.Group(); nx.position.z=-len; g.add(nx);
+  return {g:g,nx:nx};
+}
+
+// Dito completo (3 falangi), ritorna array di gruppi
+var FZ=-1.0; // bordo anteriore del palmo (z dove si attaccano le dita)
+
+function mkFinger(px,lens,radii){
+  var root=new THREE.Group(); root.position.set(px,0,FZ); HG.add(root);
+  var phs=[], par=root;
+  for(var i=0;i<lens.length;i++){
+    var r1=radii[i+1]||radii[i]*0.84;
+    var ph=mkPh(par,lens[i],radii[i],r1,i===lens.length-1);
+    phs.push(ph.g); par=ph.nx;
+  }
+  return phs;
+}
+
+// ── Palmo ──
+// Dorso (+Y) verso camera, palmo (–Y) verso il basso
+var palm=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.23,2.0,3,2,5),mS);
+palm.castShadow=true; palm.receiveShadow=true; HG.add(palm);
+
+// ── Nocche (mounds metacarpali sul dorso) ──
+// MANO DESTRA VISTA A SPECCHIO:
+// Pollice a sinistra (–X), mignolo a destra (+X)
+// Indice vicino al pollice (–0.55), mignolo a +0.52
+;[-0.55,-0.18,0.18,0.52].forEach(function(bx){
+  var b=new THREE.Mesh(new THREE.SphereGeometry(0.095,8,6),mK);
+  b.scale.set(1.1,0.48,1.35);
+  b.position.set(bx,0.23*0.5-0.002,FZ+0.26);
+  b.castShadow=true; HG.add(b);
+});
+
+// Eminenza tenare (muscolo pollice, lato –X)
+var th=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8),mS);
+th.scale.set(0.62,0.40,1.18);
+th.position.set(-0.77,0.23*0.5-0.05,0.30); th.castShadow=true; HG.add(th);
+
+// Eminenza ipotenare (muscolo mignolo, lato +X)
+var hy=new THREE.Mesh(new THREE.SphereGeometry(0.22,8,6),mS);
+hy.scale.set(0.62,0.36,1.0);
+hy.position.set(0.77,0.23*0.5-0.07,0.08); hy.castShadow=true; HG.add(hy);
+
+// Polso (+Z rispetto al palmo)
+var wr=new THREE.Mesh(new THREE.CylinderGeometry(0.37,0.46,1.2,14),mS);
+wr.rotation.x=Math.PI/2; wr.position.set(0,0,1.0+0.6);
+wr.castShadow=true; wr.receiveShadow=true; HG.add(wr);
+
+// Membrana interdigitale
+;[[-0.55,-0.18],[-0.18,0.18],[0.18,0.52]].forEach(function(p){
+  var w=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,5),mS);
+  w.scale.set(0.85,0.35,1.7);
+  w.position.set((p[0]+p[1])/2,-0.014,FZ+0.22);
+  HG.add(w);
+});
+
+// ── Dita (mano destra a specchio) ──
+// Indice a –0.55 (vicino al pollice, lato sinistro)
+// Mignolo a +0.52 (lato destro)
+var F={
+  index:  mkFinger(-0.55,[1.05,0.62,0.46],[0.100,0.088,0.076]),
+  middle: mkFinger(-0.18,[1.20,0.74,0.54],[0.108,0.096,0.083]),
+  ring:   mkFinger( 0.18,[1.10,0.66,0.50],[0.100,0.088,0.077]),
+  pinky:  mkFinger( 0.52,[0.77,0.47,0.34],[0.083,0.073,0.063]),
+};
+
+// ── Pollice (lato –X, mano destra a specchio) ──
+var TR=new THREE.Group();
+TR.position.set(-0.92,0.01,0.33);
+TR.rotation.y=0.65;    // opposto rispetto alla mano sinistra
+TR.rotation.z=0.28;
+HG.add(TR);
+var TP=[],tp=TR;
+[[0.56,0.130,0.113],[0.44,0.113,0.098],[0.32,0.098,0.082]].forEach(function(t,i){
+  var ph=mkPh(tp,t[0],t[1],t[2],i===2);
+  TP.push(ph.g); tp=ph.nx;
+});
+
+// Piega dito: rotation.x negativo = punta va verso –Y (palmo/pavimento)
+function bendF(phs,a){
+  if(phs[0]) phs[0].rotation.x=-a*0.45;
+  if(phs[1]) phs[1].rotation.x=-a*0.55;
+  if(phs[2]) phs[2].rotation.x=-a*0.38;
+}
+
+// ════════════════════════════════════════════
+//  GESTURE RECOGNITION con filtro stabilità
+//  Il tasto deve essere stabile per STABLE_N
+//  frame consecutivi prima di essere accettato.
+//  Questo evita che il rumore dei sensori
+//  resetti continuamente il timer di hold.
+// ════════════════════════════════════════════
+var recognizing=false;
+var stableKey=null, candKey=null, candCnt=0;
+var STABLE_N=6;           // frame consecutivi per accettare un tasto (~100ms a 60fps)
+var activeKey=null;        // tasto attualmente in hold
+var gStart=0, holdP=0;
+var lastAdded=null, lastAddedT=0;
+var HOLD=1800;            // ms da tenere il gesto
+var COOL=2500;            // ms cooldown stessa lettera
+var pendL='';
+
+// Categorizzazione con dead-zone per sensori imprecisi
+function cFlex(v){ return v>60?'C':v<40?'O':null; }   // dead-zone 40-60%
+function cPit(a){  return a>28?'D':a<-28?'U':'N'; }
+function cRoll(a){ return a>28?'R':a<-28?'L':'N'; }
+
+function getKey(d){
+  var ci=cFlex(d.indice), cm=cFlex(d.medio);
+  if(!ci||!cm) return null;   // fuori dalla dead-zone → nessun riconoscimento
+  // angX = asse fisico destra/sinistra (roll), angY = asse fisico avanti/indietro (pitch)
+  return ci+','+cm+','+cPit(d.angY)+','+cRoll(d.angX);
+}
+
+function checkGesture(d){
+  if(!recognizing){ holdP=0; return; }
+
+  var rawKey=getKey(d);
+  var now=Date.now();
+
+  // ── Filtro stabilità ──
+  // Il rawKey deve essere lo stesso per STABLE_N frame consecutivi
+  // prima che stableKey venga aggiornato
+  if(rawKey===candKey){
+    candCnt++;
+  } else {
+    candKey=rawKey;
+    candCnt=1;
+  }
+
+  var newStable=(candCnt>=STABLE_N)?candKey:stableKey;
+
+  // Se il tasto stabile è cambiato, resetta il timer di hold
+  if(newStable!==stableKey){
+    stableKey=newStable;
+    activeKey=stableKey;
+    gStart=now;
+    holdP=0;
+  }
+
+  var info=stableKey?ALPHA[stableKey]:null;
+  var letter=info?info.l:null;
+  pendL=letter||'';
+
+  if(!letter){ holdP=0; return; }
+
+  // ── Calcola progresso hold ──
+  holdP=Math.min((now-gStart)/HOLD,1);
+
+  if(holdP>=1){
+    var ok=(letter!==lastAdded)||((now-lastAddedT)>COOL);
+    if(ok){
+      commitL(letter);
+      lastAdded=letter; lastAddedT=now;
+      gStart=now; holdP=0;   // resetta per evitare ripetizione immediata
+    }
+  }
+}
+
+// ── Output lettere ──
+var typed='';
+
+function commitL(l){
+  typed+=l;
+  renderText();
+  // Aggiorna display grande
+  var el=document.getElementById('cl');
+  el.textContent=(l===' ')?'⎵':l;
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  hiLeg(l);
+}
+
+function renderText(){
+  var el=document.getElementById('typed');
+  if(!typed){ el.innerHTML=''; return; }
+  // Ultima lettera in evidenza
+  var prev=typed.slice(0,-1).replace(/ /g,'\u00a0');
+  var last=typed.slice(-1).replace(/ /g,'\u00a0');
+  el.innerHTML=prev+'<span class="nl">'+last+'</span>';
+}
+
+function addSpc(){ typed+=' '; renderText(); }
+function doBack(){ typed=typed.slice(0,-1); renderText(); }
+function doClear(){ typed=''; renderText(); document.getElementById('cl').textContent='–'; }
+
+function toggleRec(){
+  recognizing=!recognizing;
+  var b=document.getElementById('brec');
+  if(recognizing){
+    b.textContent='■ Ferma'; b.className='btn br';
+    stableKey=null; candKey=null; candCnt=0;
+    activeKey=null; holdP=0;
+  } else {
+    b.textContent='▶ Inizia'; b.className='btn bg';
+    holdP=0; pendL='';
+    document.getElementById('cl').textContent='–';
+    document.getElementById('rl').textContent='–';
+    document.querySelectorAll('.li').forEach(function(e){e.classList.remove('hi');});
+  }
+}
+
+// ════════════════════════════════════════════
+//  CALIBRATION OVERLAY
+// ════════════════════════════════════════════
+var CAL_STEPS={
+  'FLEX_APRI':  {icon:'✋', title:'Apri la mano!',    msg:'Tieni le dita completamente APERTE per 3 secondi.',pct:15},
+  'FLEX_CHIUDI':{icon:'✊', title:'Chiudi il pugno!', msg:'Chiudi la mano completamente per 3 secondi.',      pct:45},
+  'FLEX_OK':    {icon:'✅', title:'Flex calibrato!',  msg:'Calibrazione flex sensor completata.',             pct:100},
+  'GYRO_CAL':   {icon:'🌀', title:'Tieni fermo!',     msg:'Non muovere la mano per 2 secondi.',               pct:80},
+  'CALIBRATO':  {icon:'✅', title:'Gyro calibrato!',  msg:'Calibrazione giroscopio completata.',              pct:100},
+  'START':      {icon:'🎉', title:'Pronto!',          msg:'Premi Inizia per riconoscere i gesti.',            pct:100},
+};
+
+function showCal(tag){
+  var step=CAL_STEPS[tag];
+  if(!step) return;
+  var ov=document.getElementById('cal-ov');
+  ov.classList.remove('hidden');
+  document.getElementById('cal-icon').textContent=step.icon;
+  document.getElementById('cal-title').textContent=step.title;
+  document.getElementById('cal-msg').textContent=step.msg;
+  document.getElementById('cal-bar').style.width=step.pct+'%';
+  // Nascondi overlay e resetta status dopo completamento
+  if(tag==='START'||tag==='CALIBRATO'||tag==='FLEX_OK'){
+    setTimeout(function(){
+      ov.classList.add('hidden');
+      if(live) setStatus('live','Arduino connesso');
+    },2000);
+  }
+}
+
+// ════════════════════════════════════════════
+//  WEBSOCKET — connessione MANUALE (nessun loop)
+// ════════════════════════════════════════════
+var ws=null, live=false;
+var raw={indice:0,medio:0,angX:0,angY:0,angZ:0};
+
+var dotEl  =document.getElementById('dot');
+var stEl   =document.getElementById('st');
+var bcal   =document.getElementById('bcal');
+var bcalf  =document.getElementById('bcalf');
+var bconn  =document.getElementById('bconn');
+
+function setStatus(cls,msg){
+  if(dotEl)  dotEl.className='dot '+cls;
+  if(stEl)   stEl.textContent=msg;
+  var en=cls==='live';
+  if(bcal)   bcal.disabled=!en;
+  if(bcalf)  bcalf.disabled=!en;
+}
+
+function doConn(){
+  if(ws&&(ws.readyState===0||ws.readyState===1)) return;
+  bconn.disabled=true; bconn.textContent='Connessione...';
+  setStatus('','Connessione...');
+  ws=new WebSocket('ws://localhost:8765');
+
+  ws.onopen=function(){
+    live=true;
+    setStatus('live','Arduino connesso');
+    bconn.textContent='✓ Connesso';
+  };
+
+  ws.onmessage=function(e){
+    try{
+      var d=JSON.parse(e.data);
+      // Messaggio di calibrazione
+      if(d.cal){ showCal(d.cal); }
+      // Dati sensori (sempre presenti)
+      if(typeof d.indice!=='undefined') raw=d;
+    }catch(x){}
+  };
+
+  ws.onclose=function(){
+    live=false;
+    setStatus('err','Disconnesso');
+    bconn.disabled=false;
+    bconn.textContent='⚡ Connetti ad Arduino';
+  };
+
+  ws.onerror=function(){
+    setStatus('err','Errore — server.py attivo?');
+    bconn.disabled=false;
+    bconn.textContent='⚡ Connetti ad Arduino';
+  };
+}
+
+function doCalG(){ if(ws&&live){ ws.send('R'); setStatus('live','Ricalibrazione gyro...'); } }
+function doCalF(){ if(ws&&live){ ws.send('F'); setStatus('live','Ricalibrazione flex...'); } }
+
+// ════════════════════════════════════════════
+//  ORBIT CONTROLS
+// ════════════════════════════════════════════
+var drag=false,lmx=0,lmy=0,theta=0,phi=0.78,rad=7.2;
+ca.addEventListener('mousedown',function(e){drag=true;lmx=e.clientX;lmy=e.clientY;});
+window.addEventListener('mouseup',function(){drag=false;});
+window.addEventListener('mousemove',function(e){
+  if(!drag)return;
+  theta-=(e.clientX-lmx)*0.007;
+  phi=Math.max(0.08,Math.min(1.48,phi-(e.clientY-lmy)*0.005));
+  lmx=e.clientX;lmy=e.clientY;
+});
+ca.addEventListener('wheel',function(e){
+  rad=Math.max(2.5,Math.min(16,rad+e.deltaY*0.008));
+  e.preventDefault();
+},{passive:false});
+
+// ════════════════════════════════════════════
+//  ANIMATION LOOP
+// ════════════════════════════════════════════
+var DEG=Math.PI/180, MAXB=86*DEG;
+var cI=0,cM=0,cX=0,cY=0,cZ=0;
+var LR=0.08;  // smoothing lento → meno jitter nella categorizzazione
+function lp(a,b,t){return a+(b-a)*t;}
+var CIRC=2*Math.PI*22;  // circonferenza per r=22
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  // Posizione camera (orbita)
+  camera.position.set(
+    rad*Math.sin(theta)*Math.cos(phi),
+    rad*Math.sin(phi),
+    rad*Math.cos(theta)*Math.cos(phi)
+  );
+  camera.lookAt(0,0,-1.0);
+
+  // Smoothing dati
+  cI=lp(cI,raw.indice,LR); cM=lp(cM,raw.medio,LR);
+  cX=lp(cX,raw.angX,LR);   cY=lp(cY,raw.angY,LR); cZ=lp(cZ,raw.angZ,LR);
+
+  // Riconoscimento gesti sui dati smoothati
+  checkGesture({indice:cI,medio:cM,angX:cX,angY:cY,angZ:cZ});
+
+  // Rotazione mano da giroscopio (assi corretti per orientamento sensore fisico)
+  // angX = destra/sinistra fisico → roll 3D (negato per direzione corretta)
+  // angY = avanti/indietro fisico → pitch 3D (negato per direzione corretta)
+  // angZ = yaw (corretto)
+  HG.rotation.x= -cY*DEG*0.85;
+  HG.rotation.y=  cZ*DEG*0.85;
+  HG.rotation.z= -cX*DEG*0.85;
+
+  // Flessione dita da flex sensor
+  bendF(F.index,  (cI/100)*MAXB);
+  bendF(F.middle, (cM/100)*MAXB);
+  bendF(F.ring,   0.20);  // arricciatura naturale a riposo
+  bendF(F.pinky,  0.30);
+  if(TP[0])TP[0].rotation.x=-0.14;
+  if(TP[1])TP[1].rotation.x=-0.10;
+  if(TP[2])TP[2].rotation.x=-0.06;
+
+  // Anello di progresso hold
+  document.getElementById('rfg').style.strokeDashoffset=CIRC*(1-holdP);
+  var pl=pendL||'–';
+  document.getElementById('rl').textContent=(pl===' ')?'⎵':pl;
+
+  // Aggiorna UI sensori
+  var ri=Math.round(cI),rm=Math.round(cM);
+  document.getElementById('vi').textContent=ri+'%';
+  document.getElementById('vm').textContent=rm+'%';
+  document.getElementById('bi').style.width=ri+'%';
+  document.getElementById('bm').style.width=rm+'%';
+  document.getElementById('vpx').textContent=cX.toFixed(1)+'°';
+  document.getElementById('vpy').textContent=cY.toFixed(1)+'°';
+
+  renderer.render(scene,camera);
+}
+
+// Avvia tutto quando il DOM è completamente caricato e misurato
+window.addEventListener('load',function(){
+  resize();
+  animate();
+});
+window.addEventListener('resize',resize);
+</script>
+</body>
+</html>
